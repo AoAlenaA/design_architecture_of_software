@@ -1,7 +1,9 @@
 # Лабораторная работа №3  
 ## Тема: Использование принципов проектирования на уровне методов и классов  
 **Цель:** получить опыт проектирования и реализации модулей с использованием принципов KISS, YAGNI, DRY, SOLID и др.
-
+### Вариант использования: «Просмотр отчёта прогресса стажёра с фильтрами»
+**Актор:** Руководитель/HR  
+**Результат:** UI получает структурированный отчёт (прогресс, динамика, проблемные зоны, риск-флаг
 
 ## Диаграмма контейнеров (C4)
 
@@ -9,114 +11,19 @@
 
 ![Диаграмма контейнеров](Диаграмма_контейнеров.png)
 ## Диаграмма компонентов (C4) — контейнер AnalyticsAPI
-![Диаграмма компонентов](Сервис_аналитик_и_отчетности.png)
+![Диаграмма компонентов](Сервис_аналитики_и_отчётности.png)
  
 
 ## Диаграмма последовательностей (выбранный вариант использования)
+![Диаграмма последовательности](диаграмма_последовательности.png)
 
-### Вариант использования: «Просмотр отчёта прогресса стажёра с фильтрами»
-**Актор:** Руководитель/HR  
-**Результат:** UI получает структурированный отчёт (прогресс, динамика, проблемные зоны, риск-флаги).
 
 
 ## Модель БД (UML диаграмма классов)
 
 Модель агрегированного хранилища (PostgreSQL), ориентированного на отчётность.
 
-```plantuml
-@startuml
-skinparam classAttributeIconSize 0
-
-class Department {
-  +id: UUID
-  +name: String
-}
-
-class Team {
-  +id: UUID
-  +departmentId: UUID
-  +name: String
-}
-
-class Trainee {
-  +id: UUID
-  +teamId: UUID
-  +fullName: String
-  +hireDate: Date
-  +status: String
-}
-
-class FunnelStage {
-  +id: UUID
-  +code: String
-  +title: String
-  +orderNum: int
-}
-
-class LearningEvent {
-  +id: UUID
-  +traineeId: UUID
-  +eventType: String  <<TEST/DIALOG>>
-  +occurredAt: Timestamp
-  +payloadJson: JSONB
-}
-
-class AssessmentAttempt {
-  +id: UUID
-  +eventId: UUID
-  +traineeId: UUID
-  +type: String      <<TEST/DIALOG>>
-  +score: decimal
-  +passed: boolean
-  +durationSec: int
-  +funnelStageId: UUID?
-}
-
-class ErrorType {
-  +id: UUID
-  +code: String
-  +title: String   <<пропуск этапа/возражения/...>>
-  +severity: int
-}
-
-class AttemptError {
-  +attemptId: UUID
-  +errorTypeId: UUID
-  +count: int
-}
-
-class AggregatedMetric {
-  +id: UUID
-  +traineeId: UUID
-  +periodStart: Date
-  +periodEnd: Date
-  +progressPct: decimal
-  +avgScore: decimal
-  +attemptsCount: int
-  +weakStageId: UUID?
-}
-
-class RiskAlert {
-  +id: UUID
-  +traineeId: UUID
-  +createdAt: Timestamp
-  +riskType: String  <<LOW_PROGRESS/REPEATED_ERRORS>>
-  +level: String     <<WARN/CRITICAL>>
-  +details: String
-  +isActive: boolean
-}
-
-Department "1" -- "many" Team
-Team "1" -- "many" Trainee
-Trainee "1" -- "many" LearningEvent
-LearningEvent "1" -- "0..1" AssessmentAttempt
-AssessmentAttempt "many" -- "0..1" FunnelStage
-AssessmentAttempt "1" -- "many" AttemptError
-AttemptError "many" -- "1" ErrorType
-Trainee "1" -- "many" AggregatedMetric
-Trainee "1" -- "many" RiskAlert
-@enduml
-```
+![База Данных](база.png)
 
 **Кратко по назначению сущностей:**
 - **LearningEvent** — сырьевые события из очереди (аудит/трассировка, возможность переагрегации).
