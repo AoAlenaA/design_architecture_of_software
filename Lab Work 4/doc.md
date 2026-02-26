@@ -1,468 +1,688 @@
 # Лабораторная работа №4  
-## Тема: Проектирование REST API  
-**Цель:** получить опыт проектирования программного интерфейса (REST API) и его тестирования.
-
-Проект: **ИИ‑платформа адаптации менеджеров по продажам** (аналитический модуль: прогресс, метрики, риски, отчёты).
+**Тема:** Проектирование REST API  
+**Цель работы:** Получить опыт проектирования программного интерфейса.
 
 ---
 
-## 1) Документация по API
+## Контекст выбранного сервиса
 
-### 1.1. Общие правила
+Единая система адаптации менеджеров по продажам (курсы, диалоговые тренажёры, тесты) + аналитический модуль прогресса и типовых ошибок.  
 
-**Base URL (пример):**
-- `https://localhost:8080` (dev)
-- Все методы ниже начинаются с `/api`
+**Выбранный сервис для ЛР4:** `Analytics API` — сервис, который хранит результаты обучения и отдаёт метрики/прогресс для руководителя и HR.
 
-**Аутентификация и авторизация**
-- `Authorization: Bearer <JWT>` (OIDC/OAuth2)
-- Роли (пример): `SALES_HEAD`, `HR_ANALYST`, `ADMIN`
-- Область видимости данных: департамент/команда (scope), проверяется на сервере.
+**Базовый URL (локально):** `http://localhost:8080`  
+**Префикс API:** `/api/v1`  
+**Формат данных:** `application/json; charset=utf-8`
 
-**Формат дат**
-- `YYYY-MM-DD` (ISO-8601)
+---
 
-**Формат ответа об ошибке (единый)**
+## Принятые проектные решения (не менее 8)
+
+1) **Версионирование API в URL:** `/api/v1/...`  
+   *Причина:* безопасная эволюция контрактов и обратная совместимость.
+
+2) **Единый формат ошибок (Problem Details-стиль):**  
+   ```json
+   {
+     "type": "validation_error",
+     "title": "Validation failed",
+     "status": 400,
+     "detail": "Field 'email' is invalid",
+     "instance": "/api/v1/trainees",
+     "errors": [{"field":"email","message":"must be a valid email"}],
+     "traceId": "b2f6c8d2..."
+   }
+   ```
+   *Причина:* одинаковая обработка ошибок на клиенте и в логах.
+
+3) **Идентификаторы ресурсов:** UUID (строка) в path-параметрах: `/trainees/{traineeId}`  
+   *Причина:* глобальная уникальность, удобство интеграций.
+
+4) **REST-правила именования:**  
+   - существительные во множественном числе: `/trainees`, `/assessments`  
+   - фильтрация через query-параметры: `/assessments?traineeId=...&from=...&to=...`
+
+5) **HTTP-коды и идемпотентность:**  
+   - `POST` создаёт ресурс → `201 Created` + тело созданного объекта  
+   - `GET` читает → `200 OK`  
+   - `PUT` обновляет целиком/по договорённости → `200 OK` (или `204 No Content`, но здесь используем `200` с обновлённым объектом)  
+   - `DELETE` удаляет → `204 No Content`  
+   - `404 Not Found` если ресурс не найден  
+   - `409 Conflict` если конфликт уникальности (например, email уже занят)
+
+6) **Пагинация списков:** `page`, `pageSize` + метаданные в ответе  
+   *Причина:* стабильная производительность и удобство UI.  
+   Пример:
+   ```json
+   { "items":[...], "page":1, "pageSize":20, "total":153 }
+   ```
+
+7) **Аутентификация (упрощённо для лабы):** Bearer Token  
+   Заголовок: `Authorization: Bearer <token>`  
+   *Примечание:* в реализации для лабы можно временно отключить проверку или использовать фиксированный токен.
+
+8) **Корреляция запросов для трассировки:**  
+   Клиент может отправлять `X-Request-Id`, сервис возвращает его обратно и пишет в логи.  
+   *Причина:* проще дебажить цепочки запросов.
+
+9) **Валидация входных данных на границе:** обязательность полей, диапазоны, форматы дат ISO-8601.  
+   *Причина:* предсказуемость данных и понятные ошибки.
+
+10) **Конвенции дат/времени:** только ISO-8601 в UTC (`2026-02-24T12:30:00Z`).  
+    *Причина:* отсутствие ошибок таймзон в аналитике.
+
+---
+
+## Документация по API
+
+Ниже описаны эндпоинты сервиса `Analytics API`.  
+
+### Сущности и модели данных
+
+#### Trainee (стажёр/новичок)
 ```json
 {
-  "error": {
-    "code": "FORBIDDEN",
-    "message": "Access denied",
-    "details": {
-      "traineeId": "…"
-    }
-  }
+  "id": "4c8db0b0-6a58-4f06-92be-6d1c2c4a5e90",
+  "fullName": "Иванов Иван",
+  "email": "ivanov@example.com",
+  "department": "Sales North",
+  "hireDate": "2026-02-01",
+  "status": "ACTIVE",
+  "createdAt": "2026-02-10T09:00:00Z",
+  "updatedAt": "2026-02-10T09:00:00Z"
 }
 ```
 
-**Типовые HTTP статусы**
-- `200 OK` — успешный запрос
-- `400 Bad Request` — ошибки параметров
-- `401 Unauthorized` — нет/невалидный токен
-- `403 Forbidden` — нет прав/не тот scope
-- `404 Not Found` — сущность не найдена
-- `422 Unprocessable Entity` — логически некорректный запрос (например, from > to)
-- `500 Internal Server Error` — непредвиденная ошибка
-
-**Пагинация (где применимо)**
-- `page` (0..N), `size` (1..200), `sort` (например `createdAt,desc`)
-- В ответе: `page`, `size`, `total`
-
----
-
-## 2) Реализуемые API (для аналитического модуля)
-
-Ниже приведён набор REST‑методов, покрывающий ключевые сценарии: отчёты, динамика метрик, риски/алерты и справочники.
-
-
----
-
-### API-1. Отчёт по стажёру (прогресс + проблемные зоны + риск)
-
-**Метод:** `GET`  
-**URL:** `/api/reports/trainees/{traineeId}`
-
-**Query параметры**
-- `from` (required, `YYYY-MM-DD`) — начало периода
-- `to` (required, `YYYY-MM-DD`) — конец периода
-- `include` (optional, csv) — опциональные секции отчёта: `timeline,errors,stages`
-  - пример: `include=timeline,errors`
-
-**Headers**
-- `Authorization: Bearer <JWT>`
-- `Accept: application/json`
-
-**Ответ 200 (пример)**
+#### Assessment (результат обучения)
 ```json
 {
-  "traineeId": "8b5b7f37-0b05-4c62-9f85-9b7c7e22c2be",
-  "period": { "from": "2026-02-01", "to": "2026-02-15" },
-  "progressPct": 62.5,
-  "avgScore": 78.2,
-  "attemptsCount": 14,
-  "risk": { "riskScore": 3, "level": "WARN", "reasons": ["Повторяющиеся ошибки (>=5)"] },
-  "weakZones": [
-    { "code": "OBJECTIONS", "title": "Работа с возражениями", "count": 6 },
-    { "code": "CLOSING", "title": "Закрытие сделки", "count": 4 }
-  ],
-  "stageBreakdown": [
-    { "stageCode": "QUALIFY", "stageTitle": "Квалификация", "errors": 2, "avgScore": 80.0 },
-    { "stageCode": "PRESENT", "stageTitle": "Презентация", "errors": 3, "avgScore": 75.0 }
+  "id": "d1f2a021-9a2f-4b0a-ae6d-8e09f9a6e12b",
+  "traineeId": "4c8db0b0-6a58-4f06-92be-6d1c2c4a5e90",
+  "type": "TEST", 
+  "moduleId": "product_basics_01",
+  "score": 78,
+  "maxScore": 100,
+  "passed": true,
+  "completedAt": "2026-02-15T13:10:00Z",
+  "errors": [
+    {"code": "OBJECTION_HANDLING", "count": 2},
+    {"code": "FUNNEL_STAGE_SKIP", "count": 1}
   ]
 }
 ```
 
-**Ошибки**
-- `400` — отсутствует `from/to` или неверный формат
-- `422` — `from > to`
-- `403` — нет прав смотреть стажёра (не тот отдел/роль)
-- `404` — traineeId не найден
-
----
-
-### API-2. Командный отчёт (узкие места команды + распределение ошибок)
-
-**Метод:** `GET`  
-**URL:** `/api/reports/teams/{teamId}`
-
-**Query параметры**
-- `from` (required)
-- `to` (required)
-- `groupBy` (optional) — `stage` (по этапам воронки) или `errorType` (по типам ошибок); default `stage`
-
-**Ответ 200 (пример)**
+#### ProgressMetrics (метрики прогресса)
 ```json
 {
-  "teamId": "c4e3b0c1-4d8d-4a4e-9b42-8a2f1d4f1c11",
-  "period": { "from": "2026-02-01", "to": "2026-02-15" },
-  "traineesCount": 7,
-  "avgProgressPct": 55.1,
-  "topBottlenecks": [
-    { "stageCode": "OBJECTION", "stageTitle": "Возражения", "errorSharePct": 31.0 },
-    { "stageCode": "CLOSING", "stageTitle": "Закрытие", "errorSharePct": 22.0 }
-  ],
-  "distribution": [
-    { "key": "OBJECTION", "title": "Возражения", "count": 42 },
-    { "key": "CLOSING", "title": "Закрытие", "count": 30 }
-  ]
+  "traineeId": "4c8db0b0-6a58-4f06-92be-6d1c2c4a5e90",
+  "period": {"from":"2026-02-01","to":"2026-02-29"},
+  "avgScore": 81.2,
+  "passRate": 0.86,
+  "completedModules": 7,
+  "riskLevel": "MEDIUM",
+  "topErrorCodes": ["OBJECTION_HANDLING","CLOSING_DEAL"]
 }
 ```
 
 ---
 
-### API-3. Динамика метрик стажёра (таймлайн прогресса/баллов)
+## Endpoints
 
-**Метод:** `GET`  
-**URL:** `/api/metrics/trainees/{traineeId}/timeline`
+> Во всех примерах ниже предполагается заголовок:  
+> `Content-Type: application/json`  
 
-**Query параметры**
-- `from` (required)
-- `to` (required)
-- `step` (optional) — `day|week`; default `day`
+### 1) Создать стажёра  
+**Метод:** `POST`  
+**URL:** `/api/v1/trainees`
 
-**Ответ 200 (пример)**
+**Body (request):**
 ```json
 {
-  "traineeId": "8b5b7f37-0b05-4c62-9f85-9b7c7e22c2be",
-  "period": { "from": "2026-02-01", "to": "2026-02-15" },
-  "step": "day",
-  "points": [
-    { "date": "2026-02-01", "progressPct": 10.0, "avgScore": 65.0, "errors": 3 },
-    { "date": "2026-02-02", "progressPct": 15.0, "avgScore": 70.0, "errors": 2 }
-  ]
+  "fullName": "Иванов Иван",
+  "email": "ivanov@example.com",
+  "department": "Sales North",
+  "hireDate": "2026-02-01"
 }
 ```
 
----
-
-### API-4. Получить список риск‑алертов (для руководителя/HR)
-
-**Метод:** `GET`  
-**URL:** `/api/alerts`
-
-**Query параметры**
-- `status` (optional) — `active|closed`; default `active`
-- `level` (optional) — `INFO|WARN|CRITICAL`
-- `teamId` (optional) — фильтр по команде
-- `page` (optional), `size` (optional), `sort` (optional)
-
-**Ответ 200 (пример)**
+**Успешный ответ:** `201 Created`  
 ```json
 {
-  "page": 0,
-  "size": 20,
-  "total": 2,
+  "id": "4c8db0b0-6a58-4f06-92be-6d1c2c4a5e90",
+  "fullName": "Иванов Иван",
+  "email": "ivanov@example.com",
+  "department": "Sales North",
+  "hireDate": "2026-02-01",
+  "status": "ACTIVE",
+  "createdAt": "2026-02-10T09:00:00Z",
+  "updatedAt": "2026-02-10T09:00:00Z"
+}
+```
+
+**Ошибки:**
+- `400` — невалидные поля (email/дата/пустые строки)
+- `409` — email уже существует
+
+---
+
+### 2) Получить список стажёров (с пагинацией/фильтрацией)  
+**Метод:** `GET`  
+**URL:** `/api/v1/trainees`
+
+**Query params:**
+- `department` (optional) — фильтр по отделу
+- `status` (optional) — `ACTIVE|INACTIVE`
+- `page` (optional, default=1)
+- `pageSize` (optional, default=20)
+
+**Успешный ответ:** `200 OK`
+```json
+{
   "items": [
     {
-      "alertId": "c2b55dcb-8d1a-4cb6-9b61-1e4c2b49c1a2",
-      "createdAt": "2026-02-15T10:12:00Z",
-      "traineeId": "8b5b7f37-0b05-4c62-9f85-9b7c7e22c2be",
-      "riskType": "REPEATED_ERRORS",
-      "level": "WARN",
-      "reasons": ["Повторяющиеся ошибки (>=5)"],
-      "isActive": true
+      "id": "4c8db0b0-6a58-4f06-92be-6d1c2c4a5e90",
+      "fullName": "Иванов Иван",
+      "email": "ivanov@example.com",
+      "department": "Sales North",
+      "hireDate": "2026-02-01",
+      "status": "ACTIVE",
+      "createdAt": "2026-02-10T09:00:00Z",
+      "updatedAt": "2026-02-10T09:00:00Z"
     }
-  ]
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "total": 1
 }
 ```
 
 ---
 
-### API-5. Подтвердить/закрыть алерт (acknowledge)
+### 3) Получить стажёра по id  
+**Метод:** `GET`  
+**URL:** `/api/v1/trainees/{traineeId}`
 
+**Path params:**
+- `traineeId` — UUID
+
+**Успешный ответ:** `200 OK` (пример как в п.1)
+
+**Ошибки:**
+- `404` — если стажёр не найден
+
+---
+
+### 4) Обновить стажёра  
+**Метод:** `PUT`  
+**URL:** `/api/v1/trainees/{traineeId}`
+
+**Body (request):**
+```json
+{
+  "fullName": "Иванов Иван Иванович",
+  "email": "ivanov@example.com",
+  "department": "Sales North",
+  "hireDate": "2026-02-01",
+  "status": "ACTIVE"
+}
+```
+
+**Успешный ответ:** `200 OK` — обновлённый объект.
+
+**Ошибки:**
+- `400` — невалидные поля
+- `404` — стажёр не найден
+- `409` — email конфликтует с другим стажёром
+
+---
+
+### 5) Удалить стажёра  
+**Метод:** `DELETE`  
+**URL:** `/api/v1/trainees/{traineeId}`
+
+**Успешный ответ:** `204 No Content`
+
+**Ошибки:**
+- `404` — стажёр не найден
+
+---
+
+### 6) Создать результат обучения (assessment)  
 **Метод:** `POST`  
-**URL:** `/api/alerts/{alertId}/ack`
+**URL:** `/api/v1/assessments`
 
-**Body (application/json)**
+**Body (request):**
 ```json
 {
-  "comment": "Провёл разбор ошибок, назначил доп. тренажёр",
-  "close": true
-}
-```
-
-**Ответ 200 (пример)**
-```json
-{
-  "alertId": "c2b55dcb-8d1a-4cb6-9b61-1e4c2b49c1a2",
-  "isActive": false,
-  "closedAt": "2026-02-15T12:00:00Z"
-}
-```
-
-**Ошибки**
-- `403` — нет прав закрывать алерты
-- `404` — alertId не найден
-
----
-
-### API-6. Справочники (типы ошибок, этапы воронки)
-
-#### 6.1 Типы ошибок
-**Метод:** `GET`  
-**URL:** `/api/dictionaries/error-types`
-
-**Ответ 200 (пример)**
-```json
-{
-  "items": [
-    { "code": "SKIP_STAGE", "title": "Пропуск этапов воронки", "severity": 3 },
-    { "code": "PRODUCT_KNOWLEDGE", "title": "Слабое знание продукта", "severity": 2 },
-    { "code": "OBJECTIONS", "title": "Ошибки в работе с возражениями", "severity": 3 },
-    { "code": "CLOSING", "title": "Проблемы с закрытием сделки", "severity": 3 }
+  "traineeId": "4c8db0b0-6a58-4f06-92be-6d1c2c4a5e90",
+  "type": "TEST",
+  "moduleId": "product_basics_01",
+  "score": 78,
+  "maxScore": 100,
+  "completedAt": "2026-02-15T13:10:00Z",
+  "errors": [
+    {"code": "OBJECTION_HANDLING", "count": 2},
+    {"code": "FUNNEL_STAGE_SKIP", "count": 1}
   ]
 }
 ```
 
-#### 6.2 Этапы воронки
-**Метод:** `GET`  
-**URL:** `/api/dictionaries/funnel-stages`
+**Успешный ответ:** `201 Created` — объект `Assessment` с `id` и вычисленным `passed`.
 
-**Ответ 200 (пример)**
+**Ошибки:**
+- `400` — неверные значения (score > maxScore и т.п.)
+- `404` — traineeId не существует
+
+---
+
+### 7) Получить результаты обучения (с фильтрами)  
+**Метод:** `GET`  
+**URL:** `/api/v1/assessments`
+
+**Query params:**
+- `traineeId` (optional)
+- `type` (optional) — `TEST|DIALOGUE|FINAL`
+- `from` (optional, date-time ISO-8601)
+- `to` (optional, date-time ISO-8601)
+- `page`, `pageSize`
+
+**Успешный ответ:** `200 OK`
 ```json
 {
   "items": [
-    { "code": "QUALIFY", "title": "Квалификация", "order": 1 },
-    { "code": "NEEDS", "title": "Выявление потребностей", "order": 2 },
-    { "code": "PRESENT", "title": "Презентация", "order": 3 },
-    { "code": "OBJECTION", "title": "Возражения", "order": 4 },
-    { "code": "CLOSING", "title": "Закрытие", "order": 5 }
-  ]
+    {
+      "id": "d1f2a021-9a2f-4b0a-ae6d-8e09f9a6e12b",
+      "traineeId": "4c8db0b0-6a58-4f06-92be-6d1c2c4a5e90",
+      "type": "TEST",
+      "moduleId": "product_basics_01",
+      "score": 78,
+      "maxScore": 100,
+      "passed": true,
+      "completedAt": "2026-02-15T13:10:00Z",
+      "errors": [
+        {"code": "OBJECTION_HANDLING", "count": 2},
+        {"code": "FUNNEL_STAGE_SKIP", "count": 1}
+      ]
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "total": 1
 }
 ```
 
 ---
 
-## 3) Тестирование API (Postman + автотесты)
+### 8) Получить метрики прогресса по стажёру  
+**Метод:** `GET`  
+**URL:** `/api/v1/metrics/trainees/{traineeId}`
 
+**Query params:**
+- `from` (optional, date `YYYY-MM-DD`)
+- `to` (optional, date `YYYY-MM-DD`)
 
-### Тесты для API-1: GET /api/reports/trainees/{traineeId}
+**Успешный ответ:** `200 OK` (см. модель `ProgressMetrics`)
 
-**Тестируемое API:** Отчёт по стажёру  
-**Метод:** GET  
-**Строка запроса (пример):**
-```
-{{baseUrl}}/api/reports/trainees/{{traineeId}}?from=2026-02-01&to=2026-02-15&include=timeline,errors
-```
-
-**Postman (что показать скриншотами):**
-- Params: `from`, `to`, `include`
-- Authorization: Bearer Token = `{{token}}`
-- Headers: `Accept: application/json`
-- Response Body + Response Headers
-- Test Results
-
-**Postman Tests (JS):**
-```javascript
-pm.test("Status is 200", function () {
-  pm.response.to.have.status(200);
-});
-
-pm.test("Has required fields", function () {
-  const json = pm.response.json();
-  pm.expect(json).to.have.property("traineeId");
-  pm.expect(json).to.have.property("progressPct");
-  pm.expect(json).to.have.property("avgScore");
-  pm.expect(json).to.have.property("risk");
-});
-
-pm.test("Progress in [0..100]", function () {
-  const json = pm.response.json();
-  pm.expect(json.progressPct).to.be.at.least(0);
-  pm.expect(json.progressPct).to.be.at.most(100);
-});
-```
+**Ошибки:**
+- `404` — traineeId не существует
 
 ---
 
-### Тесты для API-2: GET /api/reports/teams/{teamId}
+# Тестирование API (Postman)
 
-**Метод:** GET  
-**Строка запроса (пример):**
-```
-{{baseUrl}}/api/reports/teams/{{teamId}}?from=2026-02-01&to=2026-02-15&groupBy=stage
-```
+Ниже — структура тестов и что нужно приложить в отчёт.  
 
-**Postman Tests:**
-```javascript
-pm.test("Status is 200", () => pm.response.to.have.status(200));
+## Тесты по Endpoint'ам
 
-pm.test("Distribution exists", () => {
-  const json = pm.response.json();
-  pm.expect(json).to.have.property("distribution");
-  pm.expect(json.distribution).to.be.an("array");
-});
-```
+> Минимум **2 теста на каждый endpoint**:  
+> - позитивный (ожидаем успех)  
+> - негативный (валидация/404/конфликт)
 
 ---
 
-### Тесты для API-3: GET /api/metrics/trainees/{traineeId}/timeline
+## 1) POST /api/v1/trainees — Create Trainee
 
-**Метод:** GET  
-**Строка запроса (пример):**
-```
-{{baseUrl}}/api/metrics/trainees/{{traineeId}}/timeline?from=2026-02-01&to=2026-02-15&step=day
-```
-
-**Postman Tests:**
-```javascript
-pm.test("Status is 200", () => pm.response.to.have.status(200));
-
-pm.test("Points array", () => {
-  const json = pm.response.json();
-  pm.expect(json.points).to.be.an("array");
-  if (json.points.length > 0) {
-    pm.expect(json.points[0]).to.have.property("date");
-  }
-});
-```
-
----
-
-### Тесты для API-4: GET /api/alerts
-
-**Метод:** GET  
-**Строка запроса (пример):**
-```
-{{baseUrl}}/api/alerts?status=active&level=WARN&page=0&size=20&sort=createdAt,desc
-```
-
-**Postman Tests:**
-```javascript
-pm.test("Status is 200", () => pm.response.to.have.status(200));
-
-pm.test("Pagination shape", () => {
-  const json = pm.response.json();
-  pm.expect(json).to.have.property("page");
-  pm.expect(json).to.have.property("size");
-  pm.expect(json).to.have.property("total");
-  pm.expect(json).to.have.property("items");
-});
-```
-
----
-
-### Тесты для API-5: POST /api/alerts/{alertId}/ack
-
-**Метод:** POST  
-**Строка запроса (пример):**
-```
-{{baseUrl}}/api/alerts/{{alertId}}/ack
-```
+### Тест 1.1 (позитивный): создать стажёра
+- **Метод:** POST  
+- **Строка запроса:** `{{baseUrl}}/api/v1/trainees`
 
 **Body (raw JSON):**
 ```json
 {
-  "comment": "Провёл разбор ошибок, назначил доп. тренажёр",
-  "close": true
+  "fullName": "Иванов Иван",
+  "email": "ivanov@example.com",
+  "department": "Sales North",
+  "hireDate": "2026-02-01"
 }
 ```
 
-**Postman Tests:**
-```javascript
-pm.test("Status is 200", () => pm.response.to.have.status(200));
+**Ожидаем:**
+- Status: `201`
+- В ответе есть `id`, `email`
 
-pm.test("Alert is closed", () => {
+**Tests (Postman):**
+```javascript
+pm.test("Status is 201", function () {
+  pm.response.to.have.status(201);
+});
+
+pm.test("Response has trainee id", function () {
   const json = pm.response.json();
-  pm.expect(json).to.have.property("isActive");
-  pm.expect(json.isActive).to.eql(false);
+  pm.expect(json).to.have.property("id");
+  pm.environment.set("traineeId", json.id);
 });
 ```
 
+![Скриншот](скрин1.jpg)
+
 ---
 
-### Тесты для API-6: GET /api/dictionaries/error-types и /funnel-stages
+### Тест 1.2 (негативный): невалидный email
+- **Метод:** POST  
+- **URL:** `{{baseUrl}}/api/v1/trainees`
 
-**Метод:** GET  
-**Строки запросов (пример):**
-```
-{{baseUrl}}/api/dictionaries/error-types
-{{baseUrl}}/api/dictionaries/funnel-stages
+**Body:**
+```json
+{
+  "fullName": "Иванов Иван",
+  "email": "not-an-email",
+  "department": "Sales North",
+  "hireDate": "2026-02-01"
+}
 ```
 
-**Postman Tests (для обоих):**
+**Ожидаем:**
+- Status: `400`
+- В ответе `type=validation_error` (или аналогично)
+
+**Tests:**
+```javascript
+pm.test("Status is 400", function () {
+  pm.response.to.have.status(400);
+});
+pm.test("Has validation error type", function () {
+  const json = pm.response.json();
+  pm.expect(json.type).to.eql("validation_error");
+});
+```
+
+![Скриншот](скрин2.jpg)
+
+---
+
+## 2) GET /api/v1/trainees — List Trainees
+
+### Тест 2.1 (позитивный): список возвращается
+- **Метод:** GET  
+- **URL:** `{{baseUrl}}/api/v1/trainees?page=1&pageSize=20`
+
+**Ожидаем:** `200`, есть `items` (array)
+
+**Tests:**
+```javascript
+pm.test("Status is 200", function () {
+    pm.response.to.have.status(200);
+});
+
+pm.test("Response is array", function () {
+    pm.expect(pm.response.json()).to.be.an("array");
+});
+```
+![Скриншот](скрин3.jpg)
+
+### Тест 2.2 (негативный): некорректная пагинация (pageSize=0)
+- **Метод:** GET  
+- **URL:** `{{baseUrl}}/api/v1/trainees?page=1&pageSize=0`
+
+**Ожидаем:** `422`
+
+**Tests:**
+```javascript
+pm.test("Status is 400", () => pm.response.to.have.status(400));
+pm.test("Validation error returned", () => {
+  const json = pm.response.json();
+  pm.expect(json.type).to.eql("validation_error");
+});
+```
+
+![Скриншот](скрин4.jpg)
+
+---
+
+## 3) GET /api/v1/trainees/{traineeId} — Get Trainee By Id
+
+### Тест 3.1 (позитивный): получить созданного стажёра
+- **Метод:** GET  
+- **URL:** `{{baseUrl}}/api/v1/trainees/{{traineeId}}`
+
+**Ожидаем:** `200`, id совпадает
+
+**Tests:**
 ```javascript
 pm.test("Status is 200", () => pm.response.to.have.status(200));
+pm.test("Returned traineeId matches env", () => {
+  const json = pm.response.json();
+  pm.expect(json.id).to.eql(pm.environment.get("traineeId"));
+});
+```
+![Скриншот](скрин5.jpg)
+### Тест 3.2 (негативный): несуществующий id
+- **Метод:** GET  
+- **URL:** `{{baseUrl}}/api/v1/trainees/00000000-0000-0000-0000-000000000000`
 
-pm.test("Items array", () => {
+**Ожидаем:** `404`
+
+**Tests:**
+```javascript
+pm.test("Status is 404", () => pm.response.to.have.status(404));
+```
+
+![Скриншот](скрин6.jpg)
+
+---
+
+## 4) PUT /api/v1/trainees/{traineeId} — Update Trainee
+
+### Тест 4.1 (позитивный): обновить имя
+- **Метод:** PUT  
+- **URL:** `{{baseUrl}}/api/v1/trainees/{{traineeId}}`
+
+**Body:**
+```json
+{
+  "fullName": "Иванов Иван Иванович",
+  "email": "ivanov@example.com",
+  "department": "Sales North",
+  "hireDate": "2026-02-01",
+  "status": "ACTIVE"
+}
+```
+
+**Ожидаем:** `200`, fullName обновился
+
+**Tests:**
+```javascript
+pm.test("Status is 200", () => pm.response.to.have.status(200));
+pm.test("fullName updated", () => {
+  const json = pm.response.json();
+  pm.expect(json.fullName).to.eql("Иванов Иван Иванович");
+});
+```
+![Скриншот](скрин7.jpg)
+
+### Тест 4.2 (негативный): обновление несуществующего id
+- **Метод:** PUT  
+- **URL:** `{{baseUrl}}/api/v1/trainees/00000000-0000-0000-0000-000000000000`
+
+**Ожидаем:** `404`
+
+**Tests:**
+```javascript
+pm.test("Status is 404", () => pm.response.to.have.status(404));
+```
+![Скриншот](скрин8.jpg)
+
+---
+
+## 5) DELETE /api/v1/trainees/{traineeId} — Delete Trainee
+
+### Тест 5.1 (позитивный): удалить стажёра
+- **Метод:** DELETE  
+- **URL:** `{{baseUrl}}/api/v1/trainees/{{traineeId}}`
+
+**Ожидаем:** `204`
+
+**Tests:**
+```javascript
+pm.test("Status is 204", () => pm.response.to.have.status(204));
+```
+![Скриншот](скрин9.jpg)
+
+### Тест 5.2 (негативный): удалить несуществующего
+- **Метод:** DELETE  
+- **URL:** `{{baseUrl}}/api/v1/trainees/00000000-0000-0000-0000-000000000000`
+
+**Ожидаем:** `404`
+
+**Tests:**
+```javascript
+pm.test("Status is 404", () => pm.response.to.have.status(404));
+```
+![Скриншот](скрин10.jpg)
+
+---
+
+## 6) POST /api/v1/assessments — Create Assessment
+
+### Тест 6.1 (позитивный): создать assessment
+- **Метод:** POST  
+- **URL:** `{{baseUrl}}/api/v1/assessments`
+
+**Body:**
+```json
+{
+  "traineeId": "{{traineeId}}",
+  "type": "TEST",
+  "moduleId": "product_basics_01",
+  "score": 78,
+  "maxScore": 100,
+  "completedAt": "2026-02-15T13:10:00Z",
+  "errors": [
+    {"code": "OBJECTION_HANDLING", "count": 2}
+  ]
+}
+```
+
+**Ожидаем:** `201`, есть `id`
+
+**Tests:**
+```javascript
+pm.test("Status is 201", () => pm.response.to.have.status(201));
+pm.test("Response has assessment id", () => {
+  const json = pm.response.json();
+  pm.expect(json).to.have.property("id");
+  pm.environment.set("assessmentId", json.id);
+});
+```
+![Скриншот](скрин11.jpg)
+### Тест 6.2 (негативный): score > maxScore
+- **Метод:** POST  
+- **URL:** `{{baseUrl}}/api/v1/assessments`
+
+**Body:**
+```json
+{
+  "traineeId": "{{traineeId}}",
+  "type": "TEST",
+  "moduleId": "product_basics_01",
+  "score": 120,
+  "maxScore": 100,
+  "completedAt": "2026-02-15T13:10:00Z"
+}
+```
+
+**Ожидаем:** `400`
+
+**Tests:**
+```javascript
+pm.test("Status is 400", () => pm.response.to.have.status(400));
+pm.test("Validation error returned", () => {
+  const json = pm.response.json();
+  pm.expect(json.type).to.eql("validation_error");
+});
+```
+![Скриншот](скрин12.jpg)
+
+---
+
+## 7) GET /api/v1/assessments — List Assessments
+
+### Тест 7.1 (позитивный): получить по traineeId
+- **Метод:** GET  
+- **URL:** `{{baseUrl}}/api/v1/assessments?traineeId={{traineeId}}&page=1&pageSize=20`
+
+**Ожидаем:** `200`, items array
+
+**Tests:**
+```javascript
+pm.test("Status is 200", () => pm.response.to.have.status(200));
+pm.test("items is array", () => {
   const json = pm.response.json();
   pm.expect(json.items).to.be.an("array");
 });
 ```
+![Скриншот](скрин13.jpg)
+### Тест 7.2 (негативный): неправильный формат
+- **Метод:** GET  
+- **URL:** `{{baseUrl}}/api/v1/assessments?type=WRONG`
+
+**Ожидаем:** `422`
+
+**Tests:**
+```javascript
+pm.test("Status is 422", function () {
+    pm.response.to.have.status(422);
+});
+```
+![Скриншот](скрин14.jpg)
+
 
 ---
 
-## 4) Автотесты вне Postman (пример: Python + pytest)
+## 8) GET /api/v1/metrics/trainees/{traineeId} — Get Metrics
 
-Если преподаватель требует “код автотестов” отдельным файлом, можно приложить минимальный pytest.
+### Тест 8.1 (позитивный): метрики по traineeId
+- **Метод:** GET  
+- **URL:** `{{baseUrl}}/api/v1/metrics/trainees/{{traineeId}}?from=2026-02-01&to=2026-02-29`
 
-**requirements.txt**
-```txt
-pytest
-requests
+**Ожидаем:** `200`, есть  `avgScore`
+
+**Tests:**
+```javascript
+pm.test("Status is 200", () => pm.response.to.have.status(200));
+pm.test("Has avgScore and riskLevel", () => {
+  const json = pm.response.json();
+  pm.expect(json).to.have.property("avgScore");
+  pm.expect(json).to.have.property("riskLevel");
+});
+```
+![Скриншот](скрин15.jpg)
+### Тест 8.2 (негативный): метрики по несуществующему traineeId
+- **Метод:** GET  
+- **URL:** `{{baseUrl}}/api/v1/metrics/trainees/00000000-0000-0000-0000-000000000000`
+
+**Ожидаем:** `404`
+
+**Tests:**
+```javascript
+pm.test("Status is 404", () => pm.response.to.have.status(404));
 ```
 
-**test_api.py**
-```python
-import os
-import requests
-
-BASE_URL = os.getenv("BASE_URL", "https://localhost:8080")
-TOKEN = os.getenv("TOKEN", "")
-TRAINEE_ID = os.getenv("TRAINEE_ID", "8b5b7f37-0b05-4c62-9f85-9b7c7e22c2be")
-TEAM_ID = os.getenv("TEAM_ID", "c4e3b0c1-4d8d-4a4e-9b42-8a2f1d4f1c11")
-
-def headers():
-    return {
-        "Authorization": f"Bearer {TOKEN}",
-        "Accept": "application/json",
-    }
-
-def test_trainee_report_status_and_fields():
-    url = f"{BASE_URL}/api/reports/trainees/{TRAINEE_ID}"
-    r = requests.get(url, params={"from": "2026-02-01", "to": "2026-02-15"}, headers=headers(), verify=False)
-    assert r.status_code == 200
-    js = r.json()
-    assert "traineeId" in js
-    assert "progressPct" in js
-    assert 0 <= js["progressPct"] <= 100
-
-def test_team_report_distribution():
-    url = f"{BASE_URL}/api/reports/teams/{TEAM_ID}"
-    r = requests.get(url, params={"from": "2026-02-01", "to": "2026-02-15"}, headers=headers(), verify=False)
-    assert r.status_code == 200
-    js = r.json()
-    assert "distribution" in js
-    assert isinstance(js["distribution"], list)
-```
-
-Запуск:
-```bash
-BASE_URL=https://localhost:8080 TOKEN="<JWT>" pytest -q
-```
-
-> `verify=False` используется для dev‑окружения с самоподписанным сертификатом.
+![Скриншот](скрин16.jpg)
 
 ---
 
+
+
+В рамках лабораторной работы спроектирован REST API для сервиса аналитики адаптации менеджеров по продажам, описаны решения проектирования (версионирование, форматы ошибок, коды ответов, пагинация, аутентификация и т.д.), реализован набор эндпоинтов (GET/POST/PUT/DELETE) и подготовлен план тестирования в Postman с автотестами для каждого endpoint (минимум 2 теста на endpoint).
 
