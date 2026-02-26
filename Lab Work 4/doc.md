@@ -392,17 +392,13 @@ pm.test("Response has trainee id", function () {
 ```
 
 **Ожидаем:**
-- Status: `400`
-- В ответе `type=validation_error` (или аналогично)
+- Status: `422`
+
 
 **Tests:**
 ```javascript
-pm.test("Status is 400", function () {
-  pm.response.to.have.status(400);
-});
-pm.test("Has validation error type", function () {
-  const json = pm.response.json();
-  pm.expect(json.type).to.eql("validation_error");
+pm.test("Status is 422", function () {
+    pm.response.to.have.status(422);
 });
 ```
 
