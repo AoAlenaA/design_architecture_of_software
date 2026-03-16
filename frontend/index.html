@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>ЛР5 — клиентская часть</title>
+</head>
+<body>
+  <h1>ЛР5 — клиентская часть</h1>
+  <button id="load">Загрузить стажёров</button>
+  <pre id="result"></pre>
+
+  <script>
+    document.getElementById("load").addEventListener("click", async () => {
+      try {
+        const response = await fetch("http://localhost:8080/api/v1/trainees");
+        const data = await response.json();
+        document.getElementById("result").textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        document.getElementById("result").textContent = "Ошибка: " + e;
+      }
+    });
+  </script>
+</body>
+</html>
