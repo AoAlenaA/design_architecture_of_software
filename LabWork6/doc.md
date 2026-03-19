@@ -159,24 +159,7 @@ assert db_config_1 is db_config_2
 assert db_config_2.dsn == "postgresql://user:pass@db:5432/analytics"
 ```
 
-**PlantUML-код диаграммы.**
-```plantuml
-@startuml
-title Singleton - единая конфигурация БД
-
-class DatabaseConfig {
-  -_instance: DatabaseConfig
-  +dsn: str
-  +__new__(dsn): DatabaseConfig
-}
-
-note right of DatabaseConfig
-Гарантирует единственный экземпляр
-конфигурации подключения
-end note
-@enduml
-```
-
+![singletor](singletor.png)
 ---
 
 ## 2. Структурные шаблоны
@@ -219,25 +202,7 @@ class TestResultAdapter:
         )
 ```
 
-**PlantUML-код диаграммы.**
-```plantuml
-@startuml
-title Adapter - нормализация результатов
-
-class NormalizedAttempt
-
-class TrainerResultAdapter {
-  +convert(raw): NormalizedAttempt
-}
-
-class TestResultAdapter {
-  +convert(raw): NormalizedAttempt
-}
-
-TrainerResultAdapter ..> NormalizedAttempt
-TestResultAdapter ..> NormalizedAttempt
-@enduml
-```
+![adapter](adapter.png)
 
 ---
 
@@ -291,24 +256,7 @@ class AnalyticsFacade:
         }
 ```
 
-**PlantUML-код диаграммы.**
-```plantuml
-@startuml
-title Facade - единый вход в аналитику
-
-class AnalyticsFacade {
-  +build_employee_snapshot(employee_id): dict
-}
-
-class MetricsRepository
-class AdaptationIndexService
-class ErrorAnalyticsService
-
-AnalyticsFacade --> MetricsRepository
-AnalyticsFacade --> AdaptationIndexService
-AnalyticsFacade --> ErrorAnalyticsService
-@enduml
-```
+![facade](facade.png)
 
 ---
 
@@ -355,28 +303,8 @@ class LoggingDecorator(ReportServiceDecorator):
         return self.wrapped.generate(employee_id)
 ```
 
-**PlantUML-код диаграммы.**
-```plantuml
-@startuml
-title Decorator - расширение сервиса отчетов
 
-interface ReportService {
-  +generate(employee_id): dict
-}
-
-class BaseReportService
-abstract class ReportServiceDecorator
-class TimingDecorator
-class LoggingDecorator
-
-ReportService <|.. BaseReportService
-ReportService <|.. ReportServiceDecorator
-ReportServiceDecorator o-- ReportService
-ReportServiceDecorator <|-- TimingDecorator
-ReportServiceDecorator <|-- LoggingDecorator
-@enduml
-```
-
+![decorater](decorater.png)
 ---
 
 ### 2.4. Proxy
@@ -406,24 +334,8 @@ class CachedTeamAnalyticsProxy:
         return self.cache[team_id]
 ```
 
-**PlantUML-код диаграммы.**
-```plantuml
-@startuml
-title Proxy - кеширование тяжелой аналитики
 
-interface TeamAnalytics {
-  +get_team_dashboard(team_id): dict
-}
-
-class TeamAnalyticsService
-class CachedTeamAnalyticsProxy
-
-TeamAnalytics <|.. TeamAnalyticsService
-TeamAnalytics <|.. CachedTeamAnalyticsProxy
-CachedTeamAnalyticsProxy --> TeamAnalyticsService
-@enduml
-```
-
+![proxy](proxy.png)
 ---
 
 ## 3. Поведенческие шаблоны
@@ -472,28 +384,7 @@ class AdaptationIndexContext:
         return self.strategy.calculate(metrics)
 ```
 
-**PlantUML-код диаграммы.**
-```plantuml
-@startuml
-title Strategy - расчет индекса адаптации
-
-interface AdaptationStrategy {
-  +calculate(metrics): float
-}
-
-class BasicAdaptationStrategy
-class SalesFocusStrategy
-class AdaptationIndexContext {
-  -strategy: AdaptationStrategy
-  +execute(metrics): float
-}
-
-AdaptationStrategy <|.. BasicAdaptationStrategy
-AdaptationStrategy <|.. SalesFocusStrategy
-AdaptationIndexContext --> AdaptationStrategy
-@enduml
-```
-
+![strategy](strategy.png)
 ---
 
 ### 3.2. Observer
@@ -544,29 +435,8 @@ class RiskMonitor:
             })
 ```
 
-**PlantUML-код диаграммы.**
-```plantuml
-@startuml
-title Observer - уведомления о рисках
 
-interface Observer {
-  +update(event)
-}
-
-class HRNotifier
-class TeamLeadNotifier
-class RiskMonitor {
-  +attach(observer)
-  +notify(event)
-  +handle_risk(employee_id, adaptation_index)
-}
-
-Observer <|.. HRNotifier
-Observer <|.. TeamLeadNotifier
-RiskMonitor --> Observer
-@enduml
-```
-
+![observer](observer.png)
 ---
 
 ### 3.3. Command
@@ -609,25 +479,8 @@ class CommandInvoker:
         return command.execute()
 ```
 
-**PlantUML-код диаграммы.**
-```plantuml
-@startuml
-title Command - запуск операций аналитики
 
-interface Command {
-  +execute()
-}
-
-class RebuildDailyMetricsCommand
-class GenerateEmployeeReportCommand
-class CommandInvoker
-
-Command <|.. RebuildDailyMetricsCommand
-Command <|.. GenerateEmployeeReportCommand
-CommandInvoker --> Command
-@enduml
-```
-
+![command](command.png)
 ---
 
 ### 3.4. Template Method
@@ -674,25 +527,7 @@ class EmployeeAnalyticsReport(AbstractAnalyticsReport):
         return {"adaptation_index": raw["score"]}
 ```
 
-**PlantUML-код диаграммы.**
-```plantuml
-@startuml
-title Template Method - общий алгоритм сборки отчета
-
-abstract class AbstractAnalyticsReport {
-  +build_report(entity_id): dict
-  +load_data(entity_id)
-  +validate(raw)
-  +calculate_metrics(raw)
-  +serialize(metrics)
-}
-
-class EmployeeAnalyticsReport
-
-AbstractAnalyticsReport <|-- EmployeeAnalyticsReport
-@enduml
-```
-
+![template](template.png)
 ---
 
 ### 3.5. State
@@ -752,34 +587,7 @@ class Trainee:
         self.state.handle(self)
 ```
 
-**PlantUML-код диаграммы.**
-```plantuml
-@startuml
-title State - состояние адаптации стажера
-
-abstract class AdaptationState {
-  +handle(trainee)
-}
-
-class NewState
-class InProgressState
-class RiskState
-class AdaptedState
-class Trainee {
-  -state: AdaptationState
-  +index: float
-  +status: str
-  +set_state(state)
-  +process()
-}
-
-AdaptationState <|-- NewState
-AdaptationState <|-- InProgressState
-AdaptationState <|-- RiskState
-AdaptationState <|-- AdaptedState
-Trainee --> AdaptationState
-@enduml
-```
+![state](state.png)
 
 ---
 
@@ -1019,82 +827,4 @@ class ReportCreator(ABC):
 **Связь с другими паттернами.**  
 Поддерживаемость достигается совокупно через Factory Method, Builder, Strategy, Facade, Adapter и GRASP-принципы Low Coupling / High Cohesion / Protected Variations.
 
----
 
-# Вывод
-
-В рамках лабораторной работы в проект были встроены типовые шаблоны GoF и проанализированы элементы GRASP.  
-Выбраны и описаны:
-
-- **Порождающие шаблоны:** Factory Method, Builder, Singleton.
-- **Структурные шаблоны:** Adapter, Facade, Decorator, Proxy.
-- **Поведенческие шаблоны:** Strategy, Observer, Command, Template Method, State.
-- **GRASP:** 5 ролей классов, 3 принципа разработки, 1 свойство программы.
-
-Использование этих шаблонов делает аналитический модуль более расширяемым, слабосвязанным и удобным для сопровождения. Для защиты лабораторной можно показать, что шаблоны не добавлены искусственно, а привязаны к конкретным функциям проекта: построению отчётов, сборке дашбордов, унификации входных данных, расчёту индекса адаптации, управлению состояниями стажёров и отправке уведомлений о рисках.
-
----
-
-# Где отрисовать диаграммы
-
-Для всех диаграмм выше используется **PlantUML**.  
-Код можно вставить в:
-
-1. **PlantText** — удобный онлайн-редактор PlantUML.  
-2. **PlantUML Online Server** — стандартный онлайн-рендерер PlantUML.  
-3. **Расширение PlantUML для VS Code** — удобно, если будешь хранить диаграммы прямо в репозитории.
-
-**Как делать:**
-1. Копируешь блок между `@startuml` и `@enduml`.
-2. Вставляешь его в любой редактор PlantUML.
-3. Получаешь PNG/SVG.
-4. Сохраняешь изображения в папку, например `LabWork6/diagrams/`.
-5. Вставляешь их в `README.md`.
-
----
-
-# Что лучше положить в репозиторий
-
-Рекомендуемая структура для 6-й лабораторной:
-
-```text
-LabWork6/
-├── README.md
-├── diagrams/
-│   ├── factory_method.puml
-│   ├── builder.puml
-│   ├── singleton.puml
-│   ├── adapter.puml
-│   ├── facade.puml
-│   ├── decorator.puml
-│   ├── proxy.puml
-│   ├── strategy.puml
-│   ├── observer.puml
-│   ├── command.puml
-│   ├── template_method.puml
-│   └── state.puml
-└── src/
-    └── examples/
-        └── patterns_demo.py
-```
-
-Если преподаватель не требует полноценной реализации в коде всего проекта, можно:
-- оставить основной код проекта как есть;
-- добавить в отдельную папку `src/examples` демонстрационные реализации паттернов;
-- в отчёте написать, в какую часть реального проекта эти паттерны должны быть встроены.
-
----
-
-# Краткая инструкция, что говорить на защите
-
-1. **Почему именно эти паттерны?**  
-   Потому что они соответствуют реальным задачам аналитического модуля: создание разных отчётов, сборка дашборда, работа с несколькими источниками данных, расчёт индекса адаптации и уведомления о рисках.
-
-2. **Какие паттерны самые важные?**  
-   Для этого проекта самые естественные: Facade, Strategy, Adapter, Builder и Observer.
-
-3. **Что даёт GRASP-анализ?**  
-   Он показывает не только наличие формальных шаблонов GoF, но и качество распределения ответственности между классами.
-
-4. **Главный архитектурный эффект?**  
-   Снижение связанности, рост расширяемости и упрощение сопровождения проекта.
